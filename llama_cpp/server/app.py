@@ -75,18 +75,23 @@ async def get_llama_proxy():
     # check if any other requests are pending in the same thread and cancel
     # the stream if so.
     await llama_outer_lock.acquire()
+    print("We got outer lock")
     release_outer_lock = True
     try:
         await llama_inner_lock.acquire()
+        print("We got inner lock")
         try:
             llama_outer_lock.release()
+            print("We released outer lock")
             release_outer_lock = False
             yield _llama_proxy
         finally:
             llama_inner_lock.release()
+            print("We released inner lock")
     finally:
         if release_outer_lock:
             llama_outer_lock.release()
+            print("We unexpected released outer lock")
 
 
 _ping_message_factory: typing.Optional[typing.Callable[[], bytes]] = None
@@ -490,6 +495,7 @@ async def create_chat_completion(
     # https://github.com/tiangolo/fastapi/issues/11143
 
     body_model = body.model
+    print("We got a completion request: {}".format(body_model))
     exclude = {
         "n",
         "logit_bias_type",
@@ -500,6 +506,7 @@ async def create_chat_completion(
 
     # handle streaming request
     if kwargs.get("stream", False):
+        print("We ready to send request, and we are streaming")
         send_chan, recv_chan = anyio.create_memory_object_stream(10)
         return EventSourceResponse(
             recv_chan,
@@ -521,6 +528,7 @@ async def create_chat_completion(
         llama_proxy: LlamaProxy = await exit_stack.enter_async_context(
             contextlib.asynccontextmanager(get_llama_proxy)()
         )
+        print("We ready to send request")
         llama = prepare_request_resources(body, llama_proxy, body_model, kwargs)
 
         if await request.is_disconnected():
