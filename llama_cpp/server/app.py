@@ -4,7 +4,7 @@ import os
 import json
 import typing
 import contextlib
-
+import asyncio
 from anyio import Lock
 from functools import partial
 from typing import List, Optional, Union, Dict
@@ -74,11 +74,24 @@ async def get_llama_proxy():
     # NOTE: This double lock allows the currently streaming llama model to
     # check if any other requests are pending in the same thread and cancel
     # the stream if so.
-    await llama_outer_lock.acquire()
+    timeout = 600 # we do a temp timeout of 600 sec
+    try:
+        await asyncio.wait_for(llama_outer_lock.acquire(), timeout=timeout)
+        print("We got outer lock")
+        release_outer_lock = True
+    except asyncio.TimeoutError:
+        print("Timeout occurred while trying to acquire outer lock.")
+        llama_outer_lock.release()
+        await llama_outer_lock.acquire()
     print("We got outer lock")
     release_outer_lock = True
     try:
-        await llama_inner_lock.acquire()
+        try:
+            await asyncio.wait_for(llama_inner_lock.acquire(), timeout=timeout)
+        except asyncio.TimeoutError:
+            print("Timeout occurred while trying to acquire inner lock.")
+            llama_inner_lock.release()
+            await llama_inner_lock.acquire()
         print("We got inner lock")
         try:
             llama_outer_lock.release()
